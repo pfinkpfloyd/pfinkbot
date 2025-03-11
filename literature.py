@@ -80,4 +80,17 @@ def find_literature_by_url(url:str):
     for option in literature_options:
         if option.url.lower() == url.lower():
             return option
-    return Literature(url, url)
+    return None
+
+def find_literature_by_url_or_name(url_or_name: str)->list[Literature]:
+    """
+    It's possible to type a name/url and then not wait for the autocomplete, in which case we just get the search
+    string submitted.  It's annoying to error if there's only a single match, so we'll try to guess a bit what
+    the user wanted
+    :param url_or_name: Full URL or partial name
+    :return:
+    """
+    exact = find_literature_by_url(url_or_name)
+    if exact:
+        return [exact]
+    return find_literature_by_keyword(url_or_name)

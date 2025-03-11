@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import traceback
 
 from discord import Intents, app_commands, File, Interaction, InteractionResponse
@@ -8,7 +9,16 @@ from urllib3.util import parse_url
 
 from client import PfinkBotClient
 from extract_pdf_pages import extract_pdf_page_range, download_file_if_needed
-from literature import literature_options, find_literature_by_url, Literature
+from literature import literature_options, Literature, find_literature_by_url_or_name
+from precache import precache_literature
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ]
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,22 +52,31 @@ async def literature_options_autocomplete(
     return values[:20]
 
 
-def validate_input(lit: Literature, start_page: int, end_page: int) -> list[str]:
-    literature_name = lit.name
-
+def validate_input(lits: list[Literature], start_page: int, end_page: int) -> list[str]:
     errors = []
-    if literature_name is None or literature_name.strip() == "":
-        errors.append('please provide a literature name or url')
+    if 1 < len(lits) < 5:
+        lit_names = ','.join(list(map(lambda x: x.name, lits)))
+        errors.append(f'multiple literature matches found. {lit_names}. Please be more specific')
 
-    result = parse_url(lit.url.strip())
-    if not all([result.scheme, result.netloc]):
-        errors.append(f'oopsies!  We couldn\'t download the file **{lit.url}**. <-- If that seems weird, you probably need to click on the Literature name in the drop down after searching. Sometimes it takes a second.')
+    elif len(lits) == 1:
+        lit = lits[0]
+        literature_name = lits[0].name
+
+        if literature_name is None or literature_name.strip() == "":
+            errors.append('please provide a literature name or url')
+
+        result = parse_url(lit.url.strip())
+        if not all([result.scheme, result.netloc]):
+            errors.append(
+                f'oopsies!  We couldn\'t download the file **{lit.url}**. <-- If that seems weird, you probably need to click on the Literature name in the drop down after searching. Sometimes it takes a second.')
+    else:
+        errors.append(f'please select a single literature name from the dropdown, or paste a url')
     if start_page < 1:
         errors.append('starting page must be at least 1')
     elif end_page < start_page:
         errors.append('starting page must be smaller than end page (that one\'s on you)')
-    if (end_page - start_page) > 10:
-        errors.append('you can extract only 10 pages.  We only have 23 internet credits left for the month.')
+    if (end_page - start_page) >= 10:
+        errors.append('you can extract only 10 pages. Why? Discord hates us')
     return errors
 
 
@@ -88,18 +107,19 @@ async def literature_pages(interaction: Interaction, literature_name: str, start
     # noinspection PyTypeChecker
     resp: InteractionResponse = interaction.response
 
-    lit = find_literature_by_url(literature_name)
-    errors = validate_input(lit, start_page, end_page)
+    lits = find_literature_by_url_or_name(literature_name)
+    errors = validate_input(lits, start_page, end_page)
     if len(errors) > 0:
         return await send_errors(interaction, resp, errors)
+    lit = lits[0]
 
     try:
-        doc, _ = download_file_if_needed(parse_url(lit.url))
+        doc, _, __ = await download_file_if_needed(lit.url)
         errors = validate_doc(lit, doc, start_page, end_page)
         if len(errors) > 0:
             return await send_errors(interaction, resp, errors)
 
-        extracted_files = await extract_pdf_page_range(literature_name, start_page, end_page)
+        extracted_files = await extract_pdf_page_range(lit.url, start_page, end_page)
         files = [File(fp=file_path) for file_path in extracted_files]
 
         if len(files) > 0:
@@ -112,7 +132,10 @@ async def literature_pages(interaction: Interaction, literature_name: str, start
         logger.exception("Error extracting PDF pages: %e", e, exc_info=True)
         traceback.print_exc()
         await send_errors(interaction, resp, [], f"Shit blew up. We\'re sorry. Try again, maybe it will work, maybe it won\'t")
-        await resp.send_message(f"Error extracting PDF pages: {e}")
 
+
+## Attempts to precache literature in the background.  Should fail gracefully
+precache_literature()
 
 client.run(os.environ['DISCORD_TOKEN'], reconnect=True)
+

@@ -3,10 +3,10 @@ import pathlib
 import sys
 from os import path
 from pathlib import Path, PurePath
-from typing import Optional
+from typing import Optional, Any, Coroutine
 
+import aiohttp
 import pymupdf as fitz
-import requests
 from urllib3.util import parse_url, Url
 
 logger = logging.getLogger(__name__)
@@ -52,24 +52,29 @@ async def extract_pdf_page_range(pdf_url: str, start_page: Optional[int], end_pa
     """
     url = parse_url(pdf_url)
 
-    doc, file_path = download_file_if_needed(url)
+    doc, file_path, _ = await download_file_if_needed(url)
     ep = (doc.page_count - 1) if end_page is None else end_page
     file_refs= []
     for pagenum in range(start_page, ep + 1):
         page_path = file_path.parent.joinpath(f"{pagenum}.png")
         if not page_path.exists():
             extract_single_page(doc, page_path, pagenum - 1)
-            logger.info(f"Extracting pagenum: {pagenum}")
+            logger.debug(f" - Extracting pagenum: {pagenum}")
         file_refs.append(page_path)
 
     return file_refs
 
-def download_file_if_needed(url: Url):
+
+async def download_file_if_needed(url_or_string):
+    was_downloaded = False
     """
     Downloads a PDF file to a local cache, if it doesn't already exist.  Also parses the file into a PyMuPDF document object
-    :param url:
+    :param url: The URL to the PDF file, URL or str
     :return: Tuple of the PyMuPDF document object and the path to the downloaded file
     """
+
+    url: Url = url_or_string if not isinstance(url_or_string, str) else parse_url(url_or_string)
+
     file_name = path.basename(url.path)
     pdf_cache_dest = file_cache_path(file_name)
 
@@ -77,19 +82,34 @@ def download_file_if_needed(url: Url):
     pdf_cache_dest.parent.mkdir(parents=True, exist_ok=True)
 
     if not pdf_cache_dest.exists():
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(pdf_cache_dest, 'wb') as file:
-                file.write(response.content)
-            logger.debug(f'File downloaded successfully {url}')
-        else:
-            logger.warning(f'Failed to download file: {url} {response.status_code}')
-            raise Exception(f"Failed to download file: {url} {response.status_code}")
+        was_downloaded = True
+        async with aiohttp.ClientSession() as session:
+            session.headers['Accept'] = 'application/pdf'
+            session.headers[
+                'User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+
+            async with session.get(str(url)) as response:
+                logger.debug(f'GET {url}')
+                logger.debug("  -Status:", response.status)
+                logger.debug("  -Content-type:", response.headers['content-type'])
+                if response.status == 200:
+
+                    # Stream file to disk in chunks
+                    with open(pdf_cache_dest, 'wb') as file:
+                        chunk: bytes
+                        async for chunk in response.content.iter_chunked(64):
+                            file.write(chunk)
+
+                    logger.debug(f'File downloaded successfully {url}')
+                else:
+                    err = f'Failed to download file: {url} {response.status}'
+                    logger.warning(err)
+                    raise Exception(err)
     else:
         logger.debug(f"{file_name} already downloaded")
 
     doc = fitz.open(pdf_cache_dest)
-    return doc, pdf_cache_dest
+    return doc, pdf_cache_dest, was_downloaded
 
 # Usage: python extract_pdf_pages.py <url> <start_page> <end_page>
 if __name__ == '__main__':

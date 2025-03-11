@@ -4,7 +4,7 @@ Pfink Discord Bot
 ## To run
 
 ### 1. Set up environment
-Talk to Eric about getting environment variables if you want to use his App
+Talk to Eric about getting environment variables if you want to use his App instance
 ```bash
 $ export DISCORD_TOKEN=[discord token here]
 ```
