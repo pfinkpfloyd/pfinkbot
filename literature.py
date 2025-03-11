@@ -3,7 +3,7 @@ class Literature:
         self.name = name
         self.url = url
 
-
+# Literature - pulled from Discord Recovery Underground literature channel.
 literature_options = [
     Literature('IP #1 (Who, What, How, and Why)', 'https://na.org/wp-content/uploads/2024/05/EN3101-IP-1-English.pdf'),
     Literature('IP #2 (The Group)', 'https://na.org/wp-content/uploads/2024/05/EN3102-IP-2-English.pdf'),
