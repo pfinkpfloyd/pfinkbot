@@ -12,13 +12,11 @@ from literature import literature_options, find_literature_by_url, Literature
 
 logger = logging.getLogger(__name__)
 
-PFINK_TEST_SERVER_ID = 1347378090501996636
-
 intents = Intents.default()
 # Allows us to read message content
 intents.message_content = True
 client = PfinkBotClient(intents=intents, guilds_to_sync=[
-    PFINK_TEST_SERVER_ID,
+    1347378090501996636, #Pfink's Test Server
     # Add more guilds here if you want to sync commands with them
 ])
 
